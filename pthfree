@@ -1,0 +1,200 @@
+#!/usr/bin/env python
+import argparse
+import cgi
+import configparser
+import pthglobals as globals
+import io
+import json
+import os
+import requests
+import sys
+import time
+
+session = None
+last_request = time.time()
+
+
+def config_get_user(config):
+    if globals.CONFIG_SECTION not in config:
+        return None
+    return config[globals.CONFIG_SECTION].get(globals.CONFIG_USERNAME_ARG)
+
+
+def config_get_password(config):
+    if globals.CONFIG_SECTION not in config:
+        return None
+    return config[globals.CONFIG_SECTION].get(globals.CONFIG_PASSWORD_ARG)
+
+
+def config_get_dir(config):
+    if globals.CONFIG_SECTION not in config:
+        return None
+    return config[globals.CONFIG_SECTION].get(globals.CONFIG_DIR_ARG)
+
+
+def config_set_user(config, username):
+    if globals.CONFIG_SECTION not in config:
+        config.add_section(globals.CONFIG_SECTION)
+    config.set(globals.CONFIG_SECTION, globals.CONFIG_USERNAME_ARG, username)
+
+
+def config_set_password(config, password):
+    if globals.CONFIG_SECTION not in config:
+        config.add_section(globals.CONFIG_SECTION)
+    config.set(globals.CONFIG_SECTION, globals.CONFIG_PASSWORD_ARG, password)
+
+
+def config_set_dir(config, directory):
+    if globals.CONFIG_SECTION not in config:
+        config.add_section(globals.CONFIG_SECTION)
+    config.set(globals.CONFIG_SECTION, globals.CONFIG_DIR_ARG, directory)
+
+
+def do_quit(message=None):
+    if message:
+        print(message)
+    sys.exit(1)
+
+
+def request(action, authkey, **kwargs):
+    global session, last_request
+
+    while time.time() - last_request < globals.RATE_LIMIT:
+        time.sleep(0.1)
+
+    last_request = time.time()
+
+    params = {"action": action}
+    params.update(kwargs)
+    params["auth"] = authkey
+
+    r = session.get(globals.AJAX_PAGE, params=params)
+    try:
+        parsed = json.loads(r.text)
+        if parsed["status"] != "success":
+            raise ValueError
+        return parsed["response"]
+    except ValueError:
+        do_quit("Error while decoding authkey and passkey ajax response!")
+
+
+def download(group, torrent, authkey, passkey, outdir, overwrite):
+    global session, last_request
+
+    while time.time() - last_request < globals.RATE_LIMIT:
+        time.sleep(0.1)
+
+    last_request = time.time()
+
+    print("Downloading", group["artist"], "-", group["groupName"], torrent["format"], torrent["encoding"],
+          "(%s)" % torrent["torrentId"])
+
+    params = {"action": "download", "id": torrent["torrentId"], "auth": authkey, "torrent_pass": passkey}
+    r = session.get(globals.TORRENT_PAGE, params=params)
+    if r.status_code != 200 or 'application/x-bittorrent' not in r.headers['content-type']:
+        print("Error while downloading torrent %s!" % torrent["torrentId"])
+        return
+    _, header_params = cgi.parse_header(r.headers["Content-disposition"])
+    filename = header_params["filename"]
+    if os.path.exists(os.path.join(outdir, filename)) and not overwrite:
+        print("Skipped already existing file", filename)
+    else:
+        outfile = io.open(os.path.join(outdir, filename), "wb")
+        outfile.write(r.content)
+        outfile.close()
+        print("Downloaded", filename)
+
+
+def main():
+    global session
+
+    parser = argparse.ArgumentParser(description="Downloads all freeleech torrents from PTH")
+    parser.add_argument("-u", "--user", help="stores a new username in the config file")
+    parser.add_argument("-p", "--password", help="stores a new password in the config file")
+    parser.add_argument("-d", "--directory", help="stores a new .torrent target directory in the config file")
+    parser.add_argument("-f", "--force", help="overwrites already existing .torrent files", action="store_true",
+                        dest="overwrite")
+    formats = parser.add_mutually_exclusive_group()
+    formats.add_argument("--flac-only", help="only downloads FLAC torrents (including 24 bit)", action="store_true",
+                         dest="flac_only")
+    formats.add_argument("--mp3-v0-only", help="only downloads V0 torrents", action="store_true", dest="v0_only")
+    formats.add_argument("--mp3-320-only", help="only downloads MP3 320 torrents", action="store_true", dest="mp3_only")
+    args = parser.parse_args()
+
+    config = configparser.ConfigParser()
+    config.read(globals.CONFIG_FILE)
+
+    if args.user:
+        config_set_user(config, args.user)
+    if args.password:
+        config_set_password(config, args.password)
+    if args.directory:
+        config_set_dir(config, args.directory)
+
+    if not config_get_user(config):
+        do_quit("Please provide a username via command line for the config file!")
+    elif not config_get_password(config):
+        do_quit("Please provide a password via command line for the config file!")
+    elif not config_get_dir(config):
+        do_quit("Please provide a directory via command line for the config file!")
+
+    if not os.path.exists(os.path.dirname(globals.CONFIG_FILE)):
+        os.makedirs(os.path.dirname(globals.CONFIG_FILE))
+    config_file = io.open(globals.CONFIG_FILE, mode="wt")
+    config.write(config_file)
+    config_file.close()
+
+    if not os.path.exists(config_get_dir(config)):
+        os.makedirs(config_get_dir(config))
+    elif not os.path.isdir(config_get_dir(config)):
+        do_quit("Given .torrent target directory is no valid directory!")
+
+    print("Logging in to PTH...")
+    session = requests.Session()
+    session.headers.update({"User-Agent": "pthfree v1.0 [api]"})
+    r = session.post(globals.LOGIN_PAGE,
+                     {"username": config_get_user(config), "password": config_get_password(config)})
+    if r.status_code != 200:
+        do_quit("Error while logging into PTH (maybe wrong credentials?)")
+
+    print("Requesting authkey and passkey...")
+    r = request("index", None)
+    authkey = r["authkey"]
+    passkey = r["passkey"]
+
+    print("Downloading freeleech torrents to target directory...")
+    finished = False
+    page = 1
+    specific_format = args.flac_only or args.v0_only or args.mp3_only
+    while not finished:
+        r = request("browse", authkey, freetorrent=1, page=page)
+
+        for group in r["results"]:
+            if "torrents" not in group:
+                continue
+            for torrent in group["torrents"]:
+                if not torrent["isFreeleech"]:
+                    continue
+                if "Lossless" in torrent["encoding"]:
+                    if args.flac_only or not specific_format:
+                        download(group, torrent, authkey, passkey, config_get_dir(config), args.overwrite)
+                if "320" in torrent["encoding"]:
+                    if args.mp3_only or not specific_format:
+                        download(group, torrent, authkey, passkey, config_get_dir(config), args.overwrite)
+                if "V0" in torrent["encoding"]:
+                    if args.v0_only or not specific_format:
+                        download(group, torrent, authkey, passkey, config_get_dir(config), args.overwrite)
+
+        if r["currentPage"] < r["pages"]:
+            page += 1
+        else:
+            finished = True
+
+    print("Logging out from PTH...")
+    session.get(globals.LOGOUT_PAGE, params={"auth": authkey})
+
+    print("Done!")
+
+
+if __name__ == '__main__':
+    main()
