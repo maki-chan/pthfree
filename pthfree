@@ -2,7 +2,7 @@
 import argparse
 import cgi
 import configparser
-import pthglobals as globals
+import pthglobals as const
 import io
 import json
 import os
@@ -15,39 +15,39 @@ last_request = time.time()
 
 
 def config_get_user(config):
-    if globals.CONFIG_SECTION not in config:
+    if const.CONFIG_SECTION not in config:
         return None
-    return config[globals.CONFIG_SECTION].get(globals.CONFIG_USERNAME_ARG)
+    return config[const.CONFIG_SECTION].get(const.CONFIG_USERNAME_ARG)
 
 
 def config_get_password(config):
-    if globals.CONFIG_SECTION not in config:
+    if const.CONFIG_SECTION not in config:
         return None
-    return config[globals.CONFIG_SECTION].get(globals.CONFIG_PASSWORD_ARG)
+    return config[const.CONFIG_SECTION].get(const.CONFIG_PASSWORD_ARG)
 
 
 def config_get_dir(config):
-    if globals.CONFIG_SECTION not in config:
+    if const.CONFIG_SECTION not in config:
         return None
-    return config[globals.CONFIG_SECTION].get(globals.CONFIG_DIR_ARG)
+    return config[const.CONFIG_SECTION].get(const.CONFIG_DIR_ARG)
 
 
 def config_set_user(config, username):
-    if globals.CONFIG_SECTION not in config:
-        config.add_section(globals.CONFIG_SECTION)
-    config.set(globals.CONFIG_SECTION, globals.CONFIG_USERNAME_ARG, username)
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_USERNAME_ARG, username)
 
 
 def config_set_password(config, password):
-    if globals.CONFIG_SECTION not in config:
-        config.add_section(globals.CONFIG_SECTION)
-    config.set(globals.CONFIG_SECTION, globals.CONFIG_PASSWORD_ARG, password)
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_PASSWORD_ARG, password)
 
 
 def config_set_dir(config, directory):
-    if globals.CONFIG_SECTION not in config:
-        config.add_section(globals.CONFIG_SECTION)
-    config.set(globals.CONFIG_SECTION, globals.CONFIG_DIR_ARG, directory)
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_DIR_ARG, directory)
 
 
 def do_quit(message=None):
@@ -57,9 +57,9 @@ def do_quit(message=None):
 
 
 def request(action, authkey, **kwargs):
-    global session, last_request
+    global last_request
 
-    while time.time() - last_request < globals.RATE_LIMIT:
+    while time.time() - last_request < const.RATE_LIMIT:
         time.sleep(0.1)
 
     last_request = time.time()
@@ -68,7 +68,7 @@ def request(action, authkey, **kwargs):
     params.update(kwargs)
     params["auth"] = authkey
 
-    r = session.get(globals.AJAX_PAGE, params=params)
+    r = session.get(const.AJAX_PAGE, params=params)
     try:
         parsed = json.loads(r.text)
         if parsed["status"] != "success":
@@ -79,9 +79,9 @@ def request(action, authkey, **kwargs):
 
 
 def download(group, torrent, authkey, passkey, outdir, overwrite):
-    global session, last_request
+    global last_request
 
-    while time.time() - last_request < globals.RATE_LIMIT:
+    while time.time() - last_request < const.RATE_LIMIT:
         time.sleep(0.1)
 
     last_request = time.time()
@@ -90,7 +90,7 @@ def download(group, torrent, authkey, passkey, outdir, overwrite):
           "(%s)" % torrent["torrentId"])
 
     params = {"action": "download", "id": torrent["torrentId"], "auth": authkey, "torrent_pass": passkey}
-    r = session.get(globals.TORRENT_PAGE, params=params)
+    r = session.get(const.TORRENT_PAGE, params=params)
     if r.status_code != 200 or 'application/x-bittorrent' not in r.headers['content-type']:
         print("Error while downloading torrent %s!" % torrent["torrentId"])
         return
@@ -122,7 +122,7 @@ def main():
     args = parser.parse_args()
 
     config = configparser.ConfigParser()
-    config.read(globals.CONFIG_FILE)
+    config.read(const.CONFIG_FILE)
 
     if args.user:
         config_set_user(config, args.user)
@@ -138,9 +138,9 @@ def main():
     elif not config_get_dir(config):
         do_quit("Please provide a directory via command line for the config file!")
 
-    if not os.path.exists(os.path.dirname(globals.CONFIG_FILE)):
-        os.makedirs(os.path.dirname(globals.CONFIG_FILE))
-    config_file = io.open(globals.CONFIG_FILE, mode="wt")
+    if not os.path.exists(os.path.dirname(const.CONFIG_FILE)):
+        os.makedirs(os.path.dirname(const.CONFIG_FILE))
+    config_file = io.open(const.CONFIG_FILE, mode="wt")
     config.write(config_file)
     config_file.close()
 
@@ -152,7 +152,7 @@ def main():
     print("Logging in to PTH...")
     session = requests.Session()
     session.headers.update({"User-Agent": "pthfree v1.0 [api]"})
-    r = session.post(globals.LOGIN_PAGE,
+    r = session.post(const.LOGIN_PAGE,
                      {"username": config_get_user(config), "password": config_get_password(config)})
     if r.status_code != 200:
         do_quit("Error while logging into PTH (maybe wrong credentials?)")
@@ -191,7 +191,7 @@ def main():
             finished = True
 
     print("Logging out from PTH...")
-    session.get(globals.LOGOUT_PAGE, params={"auth": authkey})
+    session.get(const.LOGOUT_PAGE, params={"auth": authkey})
 
     print("Done!")
 
