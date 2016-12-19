@@ -1,16 +1,19 @@
 #!/usr/bin/env python
+from email.mime.text import MIMEText
 import argparse
-import cgi
 import configparser
 import pthglobals as const
 import io
 import json
 import os
 import requests
+import smtplib
+import sqlite3
 import sys
 import time
 
 session = None
+database = None
 last_request = time.time()
 
 
@@ -26,10 +29,46 @@ def config_get_password(config):
     return config[const.CONFIG_SECTION].get(const.CONFIG_PASSWORD_ARG)
 
 
-def config_get_dir(config):
+def config_get_smtp_server(config):
     if const.CONFIG_SECTION not in config:
         return None
-    return config[const.CONFIG_SECTION].get(const.CONFIG_DIR_ARG)
+    return config[const.CONFIG_SECTION].get(const.CONFIG_SMTP_SERVER_ARG)
+
+
+def config_get_smtp_port(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].get(const.CONFIG_SMTP_PORT_ARG)
+
+
+def config_get_smtp_tls(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].getboolean(const.CONFIG_SMTP_TLS_ARG)
+
+
+def config_get_smtp_user(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].get(const.CONFIG_SMTP_USER_ARG)
+
+
+def config_get_smtp_password(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].get(const.CONFIG_SMTP_PASSWORD_ARG)
+
+
+def config_get_smtp_email(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].get(const.CONFIG_SMTP_EMAIL_ARG)
+
+
+def config_get_sendto(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].get(const.CONFIG_SENDTO_ARG)
 
 
 def config_set_user(config, username):
@@ -44,10 +83,46 @@ def config_set_password(config, password):
     config.set(const.CONFIG_SECTION, const.CONFIG_PASSWORD_ARG, password)
 
 
-def config_set_dir(config, directory):
+def config_set_smtp_server(config, server):
     if const.CONFIG_SECTION not in config:
         config.add_section(const.CONFIG_SECTION)
-    config.set(const.CONFIG_SECTION, const.CONFIG_DIR_ARG, directory)
+    config.set(const.CONFIG_SECTION, const.CONFIG_SMTP_SERVER_ARG, server)
+
+
+def config_set_smtp_port(config, port):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_SMTP_PORT_ARG, port)
+
+
+def config_set_smtp_tls(config, tls):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_SMTP_TLS_ARG, tls)
+
+
+def config_set_smtp_user(config, user):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_SMTP_USER_ARG, user)
+
+
+def config_set_smtp_password(config, password):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_SMTP_PASSWORD_ARG, password)
+
+
+def config_set_smtp_email(config, email):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_SMTP_EMAIL_ARG, email)
+
+
+def config_set_sendto(config, sendto):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_SENDTO_ARG, sendto)
 
 
 def do_quit(message=None):
@@ -78,42 +153,70 @@ def request(action, authkey, **kwargs):
         do_quit("Error while decoding authkey and passkey ajax response!")
 
 
-def download(group, torrent, authkey, passkey, outdir, overwrite):
-    global last_request
+def notify(torrent, config):
+    email = MIMEText(
+        "New freeleech torrent at PTH available:\r\n\r\n%s?torrentid=%s\r\n\r\nYou should take a look at it!" % (
+            const.TORRENT_PAGE, torrent["torrentId"]))
+    email["Subject"] = "New freeleech torrent at PTH"
+    email["From"] = config_get_smtp_email(config)
+    email["To"] = config_get_sendto(config)
 
-    while time.time() - last_request < const.RATE_LIMIT:
-        time.sleep(0.1)
-
-    last_request = time.time()
-
-    print("Downloading", group["artist"], "-", group["groupName"], torrent["format"], torrent["encoding"],
-          "(%s)" % torrent["torrentId"])
-
-    params = {"action": "download", "id": torrent["torrentId"], "auth": authkey, "torrent_pass": passkey}
-    r = session.get(const.TORRENT_PAGE, params=params)
-    if r.status_code != 200 or 'application/x-bittorrent' not in r.headers['content-type']:
-        print("Error while downloading torrent %s!" % torrent["torrentId"])
-        return
-    _, header_params = cgi.parse_header(r.headers["Content-disposition"])
-    filename = header_params["filename"]
-    if os.path.exists(os.path.join(outdir, filename)) and not overwrite:
-        print("Skipped already existing file", filename)
+    if config_get_smtp_tls(config):
+        smtp = smtplib.SMTP_SSL(host=config_get_smtp_server(config), port=config_get_smtp_port(config))
     else:
-        outfile = io.open(os.path.join(outdir, filename), "wb")
-        outfile.write(r.content)
-        outfile.close()
-        print("Downloaded", filename)
+        smtp = smtplib.SMTP(host=config_get_smtp_server(config), port=config_get_smtp_port(config))
+    smtp.login(config_get_smtp_user(config), config_get_smtp_password(config))
+    smtp.send_message(email)
+    smtp.quit()
+
+
+def check_and_store(group, torrent, quiet, config):
+    global database
+    if not database:
+        database = sqlite3.connect(const.DATABASE_FILE, isolation_level=None)
+    database.execute(
+        "CREATE TABLE IF NOT EXISTS torrents (id INTEGER PRIMARY KEY)")
+    r = database.execute("SELECT * FROM torrents WHERE id=?", (torrent["torrentId"],))
+    t = r.fetchone()
+
+    if not t:  # No torrent with that ID in database
+        database.execute("INSERT INTO torrents (id) VALUES (?)", (torrent["torrentId"],))
+        print("Notify about", group["artist"], "-", group["groupName"],
+              "(%s %s)" % (torrent["format"], torrent["encoding"]))
+        if not quiet:
+            notify(torrent, config)
+        else:
+            print("Notification suppressed")
+    else:
+        print(group["artist"], "-", group["groupName"], "(%s %s)" % (torrent["format"], torrent["encoding"]),
+              "was already known.")
+
+    # Close the cursor (not needed anymore)
+    r.close()
 
 
 def main():
     global session
 
-    parser = argparse.ArgumentParser(description="Downloads all freeleech torrents from PTH")
+    parser = argparse.ArgumentParser(description="Notifies you via mail about new freeleech torrents from PTH")
     parser.add_argument("-u", "--user", help="stores a new username in the config file")
     parser.add_argument("-p", "--password", help="stores a new password in the config file")
-    parser.add_argument("-d", "--directory", help="stores a new .torrent target directory in the config file")
-    parser.add_argument("-f", "--force", help="overwrites already existing .torrent files", action="store_true",
-                        dest="overwrite")
+    parser.add_argument("--smtp-server", help="stores a new smtp server in the config file", dest="smtp_server")
+    parser.add_argument("--smtp-port", help="stores a new smtp server port in the config file", dest="smtp_port")
+    smtp_tls = parser.add_mutually_exclusive_group()
+    smtp_tls.add_argument("--smtp-tls", help="stores that the smtp server uses SSL/TLS in the config file",
+                          action="store_true", dest="smtp_tls")
+    smtp_tls.add_argument("--no-smtp-tls", help="stores that the smtp server does not use SSL/TLS in the config file",
+                          action="store_true", dest="no_smtp_tls")
+    parser.add_argument("--smtp-user", help="stores a new smtp server user in the config file", dest="smtp_user")
+    parser.add_argument("--smtp-password", help="stores a new smtp server password in the config file",
+                        dest="smtp_password")
+    parser.add_argument("--smtp-email", help="stores a new FROM mail address for the smtp server", dest="smtp_email")
+    parser.add_argument("-s", "--send-to", help="stores a new TO mail address for the notification emails",
+                        dest="send_to")
+    parser.add_argument("-q", "--quiet",
+                        help="don't send any email, just collect and save freeleech torrents (useful if you already "
+                             "downloaded all current freeleeches)", action="store_true")
     formats = parser.add_mutually_exclusive_group()
     formats.add_argument("--flac-only", help="only downloads FLAC torrents (including 24 bit)", action="store_true",
                          dest="flac_only")
@@ -128,15 +231,41 @@ def main():
         config_set_user(config, args.user)
     if args.password:
         config_set_password(config, args.password)
-    if args.directory:
-        config_set_dir(config, args.directory)
+    if args.smtp_server:
+        config_set_smtp_server(config, args.smtp_server)
+    if args.smtp_port:
+        config_set_smtp_port(config, args.smtp_port)
+    if args.smtp_user:
+        config_set_smtp_user(config, args.smtp_user)
+    if args.smtp_password:
+        config_set_smtp_password(config, args.smtp_password)
+    if args.smtp_email:
+        config_set_smtp_email(config, args.smtp_email)
+    if args.send_to:
+        config_set_sendto(config, args.send_to)
+
+    # TLS will be off by default if not already stored otherwise in the config file
+    if args.smtp_tls:
+        config_set_smtp_tls(config, "yes")
+    elif args.no_smtp_tls:
+        config_set_smtp_tls(config, "no")
 
     if not config_get_user(config):
         do_quit("Please provide a username via command line for the config file!")
     elif not config_get_password(config):
         do_quit("Please provide a password via command line for the config file!")
-    elif not config_get_dir(config):
-        do_quit("Please provide a directory via command line for the config file!")
+    elif not config_get_smtp_server(config):
+        do_quit("Please provide a smtp server via command line for the config file!")
+    elif not config_get_smtp_port(config):
+        do_quit("Please provide a smtp server port via command line for the config file!")
+    elif not config_get_smtp_user(config):
+        do_quit("Please provide a smtp server username via command line for the config file!")
+    elif not config_get_smtp_password(config):
+        do_quit("Please provide a smtp server password via command line for the config file!")
+    elif not config_get_smtp_email(config):
+        do_quit("Please provide a sender email address via command line for the config file!")
+    elif not config_get_sendto(config):
+        do_quit("Please provide a recipient email address via command line for the config file!")
 
     if not os.path.exists(os.path.dirname(const.CONFIG_FILE)):
         os.makedirs(os.path.dirname(const.CONFIG_FILE))
@@ -144,14 +273,9 @@ def main():
     config.write(config_file)
     config_file.close()
 
-    if not os.path.exists(config_get_dir(config)):
-        os.makedirs(config_get_dir(config))
-    elif not os.path.isdir(config_get_dir(config)):
-        do_quit("Given .torrent target directory is no valid directory!")
-
     print("Logging in to PTH...")
     session = requests.Session()
-    session.headers.update({"User-Agent": "pthfree v1.0 [api]"})
+    session.headers.update({"User-Agent": "pthfree v1.1 [api]"})
     r = session.post(const.LOGIN_PAGE,
                      {"username": config_get_user(config), "password": config_get_password(config)})
     if r.status_code != 200:
@@ -160,9 +284,8 @@ def main():
     print("Requesting authkey and passkey...")
     r = request("index", None)
     authkey = r["authkey"]
-    passkey = r["passkey"]
 
-    print("Downloading freeleech torrents to target directory...")
+    print("Downloading freeleech torrents list...")
     finished = False
     page = 1
     specific_format = args.flac_only or args.v0_only or args.mp3_only
@@ -177,13 +300,13 @@ def main():
                     continue
                 if "Lossless" in torrent["encoding"]:
                     if args.flac_only or not specific_format:
-                        download(group, torrent, authkey, passkey, config_get_dir(config), args.overwrite)
+                        check_and_store(group, torrent, args.quiet, config)
                 if "320" in torrent["encoding"]:
                     if args.mp3_only or not specific_format:
-                        download(group, torrent, authkey, passkey, config_get_dir(config), args.overwrite)
+                        check_and_store(group, torrent, args.quiet, config)
                 if "V0" in torrent["encoding"]:
                     if args.v0_only or not specific_format:
-                        download(group, torrent, authkey, passkey, config_get_dir(config), args.overwrite)
+                        check_and_store(group, torrent, args.quiet, config)
 
         if r["currentPage"] < r["pages"]:
             page += 1
@@ -192,6 +315,12 @@ def main():
 
     print("Logging out from PTH...")
     session.get(const.LOGOUT_PAGE, params={"auth": authkey})
+
+    # Cleanup database
+    if database:
+        if database.in_transaction:
+            database.rollback()
+        database.close()
 
     print("Done!")
 
