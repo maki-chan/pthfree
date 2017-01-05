@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='pthfree',
-    version='1.1',
+    version='1.2',
     url='https://github.com/maki-chan/pthfree',
     license='Public Domain',
     author='maki-chan',

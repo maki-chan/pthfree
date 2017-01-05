@@ -15,6 +15,7 @@ import time
 session = None
 database = None
 last_request = time.time()
+last_pushover_request = time.time()
 
 
 def config_get_user(config):
@@ -27,6 +28,30 @@ def config_get_password(config):
     if const.CONFIG_SECTION not in config:
         return None
     return config[const.CONFIG_SECTION].get(const.CONFIG_PASSWORD_ARG)
+
+
+def config_get_use_smtp(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].getboolean(const.CONFIG_USE_SMTP_ARG)
+
+
+def config_get_use_pushover(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].getboolean(const.CONFIG_USE_PUSHOVER_ARG)
+
+
+def config_get_pushover_api_token(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].get(const.CONFIG_PUSHOVER_API_TOKEN_ARG)
+
+
+def config_get_pushover_user_key(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].get(const.CONFIG_PUSHOVER_USER_TOKEN_ARG)
 
 
 def config_get_smtp_server(config):
@@ -81,6 +106,30 @@ def config_set_password(config, password):
     if const.CONFIG_SECTION not in config:
         config.add_section(const.CONFIG_SECTION)
     config.set(const.CONFIG_SECTION, const.CONFIG_PASSWORD_ARG, password)
+
+
+def config_set_use_smtp(config, use_smtp):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_USE_SMTP_ARG, use_smtp)
+
+
+def config_set_use_pushover(config, use_pushover):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_USE_PUSHOVER_ARG, use_pushover)
+
+
+def config_set_pushover_api_token(config, pushover_api_token):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_PUSHOVER_API_TOKEN_ARG, pushover_api_token)
+
+
+def config_set_pushover_user_key(config, pushover_user_key):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_PUSHOVER_USER_TOKEN_ARG, pushover_user_key)
 
 
 def config_set_smtp_server(config, server):
@@ -154,20 +203,32 @@ def request(action, authkey, **kwargs):
 
 
 def notify(torrent, config):
-    email = MIMEText(
-        "New freeleech torrent at PTH available:\r\n\r\n%s?torrentid=%s\r\n\r\nYou should take a look at it!" % (
-            const.TORRENT_PAGE, torrent["torrentId"]))
-    email["Subject"] = "New freeleech torrent at PTH"
-    email["From"] = config_get_smtp_email(config)
-    email["To"] = config_get_sendto(config)
+    global last_pushover_request
+    if config_get_use_smtp(config):
+        email = MIMEText(
+            "New freeleech torrent at PTH available:\r\n\r\n%s?torrentid=%s\r\n\r\nYou should take a look at it!" % (
+                const.TORRENT_PAGE, torrent["torrentId"]))
+        email["Subject"] = "New freeleech torrent at PTH"
+        email["From"] = config_get_smtp_email(config)
+        email["To"] = config_get_sendto(config)
 
-    if config_get_smtp_tls(config):
-        smtp = smtplib.SMTP_SSL(host=config_get_smtp_server(config), port=config_get_smtp_port(config))
-    else:
-        smtp = smtplib.SMTP(host=config_get_smtp_server(config), port=config_get_smtp_port(config))
-    smtp.login(config_get_smtp_user(config), config_get_smtp_password(config))
-    smtp.send_message(email)
-    smtp.quit()
+        if config_get_smtp_tls(config):
+            smtp = smtplib.SMTP_SSL(host=config_get_smtp_server(config), port=config_get_smtp_port(config))
+        else:
+            smtp = smtplib.SMTP(host=config_get_smtp_server(config), port=config_get_smtp_port(config))
+        smtp.login(config_get_smtp_user(config), config_get_smtp_password(config))
+        smtp.send_message(email)
+        smtp.quit()
+    if config_get_use_pushover(config):
+        while time.time() - last_pushover_request < const.RATE_LIMIT_PUSHOVER:
+            time.sleep(0.1)
+        last_pushover_request = time.time()
+        title = "New freeleech torrent at PTH"
+        text = "New freeleech torrent at PTH!\r\nYou should take a look at it!"
+        url = "%s?torrentid=%s" % (const.TORRENT_PAGE, torrent["torrentId"])
+        requests.post(const.PUSHOVER_API_TARGET, data={'token': config_get_pushover_api_token(config),
+                                                       'user': config_get_pushover_user_key(config), 'message': text,
+                                                       'title': title, 'url': url})
 
 
 def check_and_store(group, torrent, quiet, config):
@@ -201,6 +262,20 @@ def main():
     parser = argparse.ArgumentParser(description="Notifies you via mail about new freeleech torrents from PTH")
     parser.add_argument("-u", "--user", help="stores a new username in the config file")
     parser.add_argument("-p", "--password", help="stores a new password in the config file")
+    choose_api_smtp = parser.add_mutually_exclusive_group()
+    choose_api_smtp.add_argument("--smtp", help="use smtp (mail) as notification API", action="store_true",
+                                 dest="use_smtp")
+    choose_api_smtp.add_argument("--no-smtp", help="don't use smtp (mail) as notification API", action="store_true",
+                                 dest="use_no_smtp")
+    choose_api_pushover = parser.add_mutually_exclusive_group()
+    choose_api_pushover.add_argument("--pushover", help="use Pushover as notification API", action="store_true",
+                                     dest="use_pushover")
+    choose_api_pushover.add_argument("--no-pushover", help="don't use Pushover as notification API",
+                                     action="store_true", dest="use_no_pushover")
+    parser.add_argument("--pushover-api-token", help="stores a new Pushover API token in the config file",
+                        dest="pushover_api_token")
+    parser.add_argument("--pushover-user-key", help="stores a new Pushover user key in the config file",
+                        dest="pushover_user_key")
     parser.add_argument("--smtp-server", help="stores a new smtp server in the config file", dest="smtp_server")
     parser.add_argument("--smtp-port", help="stores a new smtp server port in the config file", dest="smtp_port")
     smtp_tls = parser.add_mutually_exclusive_group()
@@ -226,6 +301,16 @@ def main():
 
     config = configparser.ConfigParser()
     config.read(const.CONFIG_FILE)
+
+    if args.use_pushover:
+        config_set_use_pushover(config, "yes")
+    elif args.use_no_pushover:
+        config_set_use_pushover(config, "no")
+
+    if args.use_smtp:
+        config_set_use_smtp(config, "yes")
+    elif args.use_no_smtp:
+        config_set_use_smtp(config, "no")
 
     if args.user:
         config_set_user(config, args.user)
@@ -254,18 +339,22 @@ def main():
         do_quit("Please provide a username via command line for the config file!")
     elif not config_get_password(config):
         do_quit("Please provide a password via command line for the config file!")
-    elif not config_get_smtp_server(config):
+    elif config_get_use_smtp(config) and not config_get_smtp_server(config):
         do_quit("Please provide a smtp server via command line for the config file!")
-    elif not config_get_smtp_port(config):
+    elif config_get_use_smtp(config) and not config_get_smtp_port(config):
         do_quit("Please provide a smtp server port via command line for the config file!")
-    elif not config_get_smtp_user(config):
+    elif config_get_use_smtp(config) and not config_get_smtp_user(config):
         do_quit("Please provide a smtp server username via command line for the config file!")
-    elif not config_get_smtp_password(config):
+    elif config_get_use_smtp(config) and not config_get_smtp_password(config):
         do_quit("Please provide a smtp server password via command line for the config file!")
-    elif not config_get_smtp_email(config):
+    elif config_get_use_smtp(config) and not config_get_smtp_email(config):
         do_quit("Please provide a sender email address via command line for the config file!")
-    elif not config_get_sendto(config):
+    elif config_get_use_smtp(config) and not config_get_sendto(config):
         do_quit("Please provide a recipient email address via command line for the config file!")
+    elif config_get_use_pushover(config) and not config_get_pushover_api_token(config):
+        do_quit("Please provide a Pushover API token (app token) via command line for the config file!")
+    elif config_get_use_pushover(config) and not config_get_pushover_user_key(config):
+        do_quit("Please provide your Pushover user key via command line for the config file!")
 
     if not os.path.exists(os.path.dirname(const.CONFIG_FILE)):
         os.makedirs(os.path.dirname(const.CONFIG_FILE))
@@ -273,9 +362,12 @@ def main():
     config.write(config_file)
     config_file.close()
 
+    if not (config_get_use_smtp(config) or config_get_use_pushover(config)):
+        print("*****WARNING: No notification API in use, you won't get any notifications!*****")
+
     print("Logging in to PTH...")
     session = requests.Session()
-    session.headers.update({"User-Agent": "pthfree v1.1 [api]"})
+    session.headers.update({"User-Agent": "pthfree v1.2 [api]"})
     r = session.post(const.LOGIN_PAGE,
                      {"username": config_get_user(config), "password": config_get_password(config)})
     if r.status_code != 200:
@@ -301,12 +393,14 @@ def main():
                 if "Lossless" in torrent["encoding"]:
                     if args.flac_only or not specific_format:
                         check_and_store(group, torrent, args.quiet, config)
-                if "320" in torrent["encoding"]:
+                elif "320" in torrent["encoding"]:
                     if args.mp3_only or not specific_format:
                         check_and_store(group, torrent, args.quiet, config)
-                if "V0" in torrent["encoding"]:
+                elif "V0" in torrent["encoding"]:
                     if args.v0_only or not specific_format:
                         check_and_store(group, torrent, args.quiet, config)
+                elif not specific_format:
+                    check_and_store(group, torrent, args.quiet, config)
 
         if r["currentPage"] < r["pages"]:
             page += 1
