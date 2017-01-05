@@ -428,7 +428,7 @@ def main():
     if r.status_code != 200:
         do_quit("Error while logging into PTH (maybe wrong credentials?)")
 
-    print("Requesting authkey and passkey...")
+    print("Requesting authkey...")
     r = request("index", None)
     authkey = r["authkey"]
 
