@@ -1,4 +1,4 @@
-# pthfree
+# pthfree [![Build Status](https://travis-ci.org/maki-chan/pthfree.svg?branch=master)](https://travis-ci.org/maki-chan/pthfree)
 
 Introduction
 ------------
@@ -36,7 +36,7 @@ Alternatively, if you have setuptools installed, you can do this (in the source 
 
     $ python setup.py install
 
-This should theoretically install the required dependency automatically. 
+This should theoretically install the required dependency automatically.
 
 At this point you may execute the following command:
 
