@@ -16,6 +16,7 @@ session = None
 database = None
 last_request = time.time()
 last_pushover_request = time.time()
+last_pushbullet_request = time.time()
 
 
 def config_get_user(config):
@@ -42,6 +43,12 @@ def config_get_use_pushover(config):
     return config[const.CONFIG_SECTION].getboolean(const.CONFIG_USE_PUSHOVER_ARG)
 
 
+def config_get_use_pushbullet(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].getboolean(const.CONFIG_USE_PUSHBULLET_ARG)
+
+
 def config_get_pushover_api_token(config):
     if const.CONFIG_SECTION not in config:
         return None
@@ -52,6 +59,12 @@ def config_get_pushover_user_key(config):
     if const.CONFIG_SECTION not in config:
         return None
     return config[const.CONFIG_SECTION].get(const.CONFIG_PUSHOVER_USER_TOKEN_ARG)
+
+
+def config_get_pushbullet_token(config):
+    if const.CONFIG_SECTION not in config:
+        return None
+    return config[const.CONFIG_SECTION].get(const.CONFIG_PUSHBULLET_ACCESS_TOKEN_ARG)
 
 
 def config_get_smtp_server(config):
@@ -120,6 +133,12 @@ def config_set_use_pushover(config, use_pushover):
     config.set(const.CONFIG_SECTION, const.CONFIG_USE_PUSHOVER_ARG, use_pushover)
 
 
+def config_set_use_pushbullet(config, use_pushbullet):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_USE_PUSHBULLET_ARG, use_pushbullet)
+
+
 def config_set_pushover_api_token(config, pushover_api_token):
     if const.CONFIG_SECTION not in config:
         config.add_section(const.CONFIG_SECTION)
@@ -130,6 +149,12 @@ def config_set_pushover_user_key(config, pushover_user_key):
     if const.CONFIG_SECTION not in config:
         config.add_section(const.CONFIG_SECTION)
     config.set(const.CONFIG_SECTION, const.CONFIG_PUSHOVER_USER_TOKEN_ARG, pushover_user_key)
+
+
+def config_set_pushbullet_token(config, pushbullet_access_token):
+    if const.CONFIG_SECTION not in config:
+        config.add_section(const.CONFIG_SECTION)
+    config.set(const.CONFIG_SECTION, const.CONFIG_PUSHBULLET_ACCESS_TOKEN_ARG, pushbullet_access_token)
 
 
 def config_set_smtp_server(config, server):
@@ -203,7 +228,7 @@ def request(action, authkey, **kwargs):
 
 
 def notify(torrent, config):
-    global last_pushover_request
+    global last_pushover_request, last_pushbullet_request
     if config_get_use_smtp(config):
         email = MIMEText(
             "New freeleech torrent at PTH available:\r\n\r\n%s?torrentid=%s\r\n\r\nYou should take a look at it!" % (
@@ -229,6 +254,16 @@ def notify(torrent, config):
         requests.post(const.PUSHOVER_API_TARGET, data={'token': config_get_pushover_api_token(config),
                                                        'user': config_get_pushover_user_key(config), 'message': text,
                                                        'title': title, 'url': url})
+    if config_get_use_pushbullet(config):
+        while time.time() - last_pushbullet_request < const.RATE_LIMIT_PUSHBULLET:
+            time.sleep(0.1)
+        last_pushbullet_request = time.time()
+        title = "New freeleech torrent at PTH"
+        text = "New freeleech torrent at PTH!\r\nYou should take a look at it!"
+        url = "%s?torrentid=%s" % (const.TORRENT_PAGE, torrent["torrentId"])
+        headers = {'Access-Token': config_get_pushbullet_token(config)}
+        requests.post(const.PUSHBULLET_API_TARGET, headers=headers,
+                      json={'type': 'link', 'title': title, 'body': text, 'url': url})
 
 
 def check_and_store(group, torrent, quiet, config):
@@ -272,10 +307,17 @@ def main():
                                      dest="use_pushover")
     choose_api_pushover.add_argument("--no-pushover", help="don't use Pushover as notification API",
                                      action="store_true", dest="use_no_pushover")
+    choose_api_pushbullet = parser.add_mutually_exclusive_group()
+    choose_api_pushbullet.add_argument("--pushbullet", help="use Pushbullet as notification API", action="store_true",
+                                       dest="use_pushbullet")
+    choose_api_pushbullet.add_argument("--no-pushbullet", help="don't use Pushbullet as notification API",
+                                       action="store_true", dest="use_no_pushbullet")
     parser.add_argument("--pushover-api-token", help="stores a new Pushover API token in the config file",
                         dest="pushover_api_token")
     parser.add_argument("--pushover-user-key", help="stores a new Pushover user key in the config file",
                         dest="pushover_user_key")
+    parser.add_argument("--pushbullet-token", help="stores a new Pushbullet access token in the config file",
+                        dest="pushbullet_access_token")
     parser.add_argument("--smtp-server", help="stores a new smtp server in the config file", dest="smtp_server")
     parser.add_argument("--smtp-port", help="stores a new smtp server port in the config file", dest="smtp_port")
     smtp_tls = parser.add_mutually_exclusive_group()
@@ -307,6 +349,11 @@ def main():
     elif args.use_no_pushover:
         config_set_use_pushover(config, "no")
 
+    if args.use_pushbullet:
+        config_set_use_pushbullet(config, "yes")
+    elif args.use_no_pushbullet:
+        config_set_use_pushbullet(config, "no")
+
     if args.use_smtp:
         config_set_use_smtp(config, "yes")
     elif args.use_no_smtp:
@@ -332,6 +379,8 @@ def main():
         config_set_pushover_api_token(config, args.pushover_api_token)
     if args.pushover_user_key:
         config_set_pushover_user_key(config, args.pushover_user_key)
+    if args.pushbullet_access_token:
+        config_set_pushbullet_token(config, args.pushbullet_access_token)
 
     # TLS will be off by default if not already stored otherwise in the config file
     if args.smtp_tls:
@@ -359,6 +408,8 @@ def main():
         do_quit("Please provide a Pushover API token (app token) via command line for the config file!")
     elif config_get_use_pushover(config) and not config_get_pushover_user_key(config):
         do_quit("Please provide your Pushover user key via command line for the config file!")
+    elif config_get_use_pushbullet(config) and not config_get_pushbullet_token(config):
+        do_quit("Please provide your Pushbullet access token via command line for the config file!")
 
     if not os.path.exists(os.path.dirname(const.CONFIG_FILE)):
         os.makedirs(os.path.dirname(const.CONFIG_FILE))
@@ -366,12 +417,12 @@ def main():
     config.write(config_file)
     config_file.close()
 
-    if not (config_get_use_smtp(config) or config_get_use_pushover(config)):
+    if not (config_get_use_smtp(config) or config_get_use_pushover(config) or config_get_use_pushbullet(config)):
         print("*****WARNING: No notification API in use, you won't get any notifications!*****")
 
     print("Logging in to PTH...")
     session = requests.Session()
-    session.headers.update({"User-Agent": "pthfree v1.2 [api]"})
+    session.headers.update({"User-Agent": "pthfree v1.3 [api]"})
     r = session.post(const.LOGIN_PAGE,
                      {"username": config_get_user(config), "password": config_get_password(config)})
     if r.status_code != 200:
