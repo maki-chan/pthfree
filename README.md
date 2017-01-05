@@ -63,9 +63,10 @@ To configure pthfree, have a look at the help screen which you can bring up your
 This is the help screen:
 
     usage: pthfree [-h] [-u USER] [-p PASSWORD] [--smtp | --no-smtp]
-                   [--pushover | --no-pushover]
+                   [--pushover | --no-pushover] [--pushbullet | --no-pushbullet]
                    [--pushover-api-token PUSHOVER_API_TOKEN]
                    [--pushover-user-key PUSHOVER_USER_KEY]
+                   [--pushbullet-token PUSHBULLET_ACCESS_TOKEN]
                    [--smtp-server SMTP_SERVER] [--smtp-port SMTP_PORT]
                    [--smtp-tls | --no-smtp-tls] [--smtp-user SMTP_USER]
                    [--smtp-password SMTP_PASSWORD] [--smtp-email SMTP_EMAIL]
@@ -83,10 +84,15 @@ This is the help screen:
       --no-smtp             don't use smtp (mail) as notification API
       --pushover            use Pushover as notification API
       --no-pushover         don't use Pushover as notification API
+      --pushbullet          use Pushbullet as notification API
+      --no-pushbullet       don't use Pushbullet as notification API
       --pushover-api-token PUSHOVER_API_TOKEN
                             stores a new Pushover API token in the config file
       --pushover-user-key PUSHOVER_USER_KEY
                             stores a new Pushover user key in the config file
+      --pushbullet-token PUSHBULLET_ACCESS_TOKEN
+                            stores a new Pushbullet access token in the config
+                            file
       --smtp-server SMTP_SERVER
                             stores a new smtp server in the config file
       --smtp-port SMTP_PORT
@@ -122,13 +128,21 @@ so (please note that you have to turn on the smtp notifications once too):
 
     $ pthfree --smtp -u IamNobody -p IhaveNoPassword --smtp-server mail.example.com --smtp-port 25 --smtp-user nobody --smtp-password NobodysPassword --smtp-email nobody@example.com -s your@email.com
 
-If you want to turn on pushover notifications, you need to create a new application with its own api token over at
+If you want to turn on Pushover notifications, you need to create a new application with its own api token over at
 [Pushover](https://pushover.net). Then you have to provide both, your app token and the user key to this application.
 The user key is used as a "receiver", while the app token is used as the "sender". Here you can see an example (don't
 forget to provide your PTH username and your password if you haven't already done so before; also tell pthfree at least
-once that you want to enable pushover notifications):
+once that you want to enable Pushover notifications):
 
     $ pthfree --pushover -u IamNobody -p IhaveNoPassword --pushover-api-token fvr02if84cgxrv19c2m1fivj0nz43g --pushover-user-key ch4rz5whyop98gx45blzb5j6u4cxu6
+
+If you want to turn on Pushbullet notifications, you need to create a new access token at
+[Pushbullet](https://www.pushbullet.com/). Then you have to provide this token to pthfree. The token is used for both,
+"receiver" and "sender", so you are sending those notifications officially from yourself to yourself. Have an example
+here (don't forget to provide your PTH username and your password if you haven't already done so before; also tell
+pthfree at least once that you want to enable Pushbullet notifications):
+
+    $ pthfree --pushbullet -u IamNobody -p IhaveNoPassword --pushbullet-token o.NFT3td8UDpBn4URK6vyufaZI9Ttewy09
 
 If you have done that once and pthfree ran without any problems, congratulations! You don't need to run pthfree with
 those arguments all over again. Just run this in the future:
