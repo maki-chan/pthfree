@@ -259,7 +259,7 @@ def check_and_store(group, torrent, quiet, config):
 def main():
     global session
 
-    parser = argparse.ArgumentParser(description="Notifies you via mail about new freeleech torrents from PTH")
+    parser = argparse.ArgumentParser(description="Notifies you about new freeleech torrents from PTH")
     parser.add_argument("-u", "--user", help="stores a new username in the config file")
     parser.add_argument("-p", "--password", help="stores a new password in the config file")
     choose_api_smtp = parser.add_mutually_exclusive_group()

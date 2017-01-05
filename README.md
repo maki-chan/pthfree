@@ -3,11 +3,11 @@
 Introduction
 ------------
 
-Notifies you via mail about new freeleech torrents from PTH.
+Notifies you about new freeleech torrents from PTH.
 
 The following command will request every freeleech torrent currently on PTH via its API and checks if you were already
-notified about the freeleech torrent in the past. If you weren't, the application sends you an email that you should
-look at the freeleech section at PTH.
+notified about the freeleech torrent in the past. If you weren't, the application sends you a notification that you
+should look at the freeleech section at PTH.
 
 Installation
 ------------
@@ -62,19 +62,31 @@ To configure pthfree, have a look at the help screen which you can bring up your
 
 This is the help screen:
 
-    usage: pthfree [-h] [-u USER] [-p PASSWORD] [--smtp-server SMTP_SERVER]
-                   [--smtp-port SMTP_PORT] [--smtp-tls | --no-smtp-tls]
-                   [--smtp-user SMTP_USER] [--smtp-password SMTP_PASSWORD]
-                   [--smtp-email SMTP_EMAIL] [-s SEND_TO] [-q]
+    usage: pthfree [-h] [-u USER] [-p PASSWORD] [--smtp | --no-smtp]
+                   [--pushover | --no-pushover]
+                   [--pushover-api-token PUSHOVER_API_TOKEN]
+                   [--pushover-user-key PUSHOVER_USER_KEY]
+                   [--smtp-server SMTP_SERVER] [--smtp-port SMTP_PORT]
+                   [--smtp-tls | --no-smtp-tls] [--smtp-user SMTP_USER]
+                   [--smtp-password SMTP_PASSWORD] [--smtp-email SMTP_EMAIL]
+                   [-s SEND_TO] [-q]
                    [--flac-only | --mp3-v0-only | --mp3-320-only]
     
-    Notifies you via mail about new freeleech torrents from PTH
+    Notifies you about new freeleech torrents from PTH
     
     optional arguments:
       -h, --help            show this help message and exit
       -u USER, --user USER  stores a new username in the config file
       -p PASSWORD, --password PASSWORD
                             stores a new password in the config file
+      --smtp                use smtp (mail) as notification API
+      --no-smtp             don't use smtp (mail) as notification API
+      --pushover            use Pushover as notification API
+      --no-pushover         don't use Pushover as notification API
+      --pushover-api-token PUSHOVER_API_TOKEN
+                            stores a new Pushover API token in the config file
+      --pushover-user-key PUSHOVER_USER_KEY
+                            stores a new Pushover user key in the config file
       --smtp-server SMTP_SERVER
                             stores a new smtp server in the config file
       --smtp-port SMTP_PORT
@@ -102,11 +114,21 @@ This is the help screen:
 As you can see, there are several options you can use when you want to get notified about freeleech torrents (e.g. you
 can use `--flac-only` to only be notified about FLAC torrents and no MP3 torrents at all).
 
-To configure pthfree, you need to provide your PTH username, your password, an smtp server, the port of the smtp server,
-the smtp user, the smtp password, the sender address (FROM) and the recipient address (TO) at least once, for example
-like so:
+To configure pthfree, you need to provide your PTH username and your password.
 
-    $ pthfree -u IamNobody -p IhaveNoPassword --smtp-server mail.example.com --smtp-port 25 --smtp-user nobody --smtp-password NobodysPassword --smtp-email nobody@example.com -s your@email.com
+Furthermore, if you want notifications via mail, you need to provide a smtp server, the port of the smtp server, the
+smtp user, the smtp password, the sender address (FROM) and the recipient address (TO) at least once, for example like
+so (please note that you have to turn on the smtp notifications once too):
+
+    $ pthfree --smtp -u IamNobody -p IhaveNoPassword --smtp-server mail.example.com --smtp-port 25 --smtp-user nobody --smtp-password NobodysPassword --smtp-email nobody@example.com -s your@email.com
+
+If you want to turn on pushover notifications, you need to create a new application with its own api token over at
+[Pushover](https://pushover.net). Then you have to provide both, your app token and the user key to this application.
+The user key is used as a "receiver", while the app token is used as the "sender". Here you can see an example (don't
+forget to provide your PTH username and your password if you haven't already done so before; also tell pthfree at least
+once that you want to enable pushover notifications):
+
+    $ pthfree --pushover -u IamNobody -p IhaveNoPassword --pushover-api-token fvr02if84cgxrv19c2m1fivj0nz43g --pushover-user-key ch4rz5whyop98gx45blzb5j6u4cxu6
 
 If you have done that once and pthfree ran without any problems, congratulations! You don't need to run pthfree with
 those arguments all over again. Just run this in the future:
@@ -119,6 +141,9 @@ provide those configuration switches again, though, if you want to change anythi
 in the configuration file.
 
 **PRO TIP:** pthfree is best run as a cron job on your seedbox (or another suitable server).
+
+**PRO TIP 2:** pthfree is able to provide you with notifications via all its notification APIs at once if you switched
+all of them on!
 
 One last thing: The --*format*-only switches are not stored in the configuration, so if you used `pthfree --flac-only`
 the last time, the next run with only `pthfree` will download every freeleech torrent, including MP3 files.
