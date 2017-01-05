@@ -328,6 +328,10 @@ def main():
         config_set_smtp_email(config, args.smtp_email)
     if args.send_to:
         config_set_sendto(config, args.send_to)
+    if args.pushover_api_token:
+        config_set_pushover_api_token(config, args.pushover_api_token)
+    if args.pushover_user_key:
+        config_set_pushover_user_key(config, args.pushover_user_key)
 
     # TLS will be off by default if not already stored otherwise in the config file
     if args.smtp_tls:
