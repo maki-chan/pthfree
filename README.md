@@ -5,6 +5,8 @@ Introduction
 
 Notifies you about new freeleech torrents from PTH.
 
+**WARNING: THIS TOOL IS NOT ALLOWED ON PTH ACCORDING TO STAFF! YOU WILL BE WARNED OR BANNED IF USING THIS TOOL! I AM NOT RESPONSIBLE FOR YOU USING IT THERE!**
+
 The following command will request every freeleech torrent currently on PTH via its API and checks if you were already
 notified about the freeleech torrent in the past. If you weren't, the application sends you a notification that you
 should look at the freeleech section at PTH.
